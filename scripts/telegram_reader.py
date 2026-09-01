@@ -1,7 +1,6 @@
 import os
 import json
 import asyncio
-from datetime import datetime
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -17,15 +16,18 @@ RAW_FILE = "data/raw_posts.json"
 STATE_FILE = "data/sync_state.json"
 
 
-
 def load_json(path, default):
 
     if os.path.exists(path):
+
         try:
+
             with open(path, "r", encoding="utf-8") as f:
+
                 return json.load(f)
 
         except Exception:
+
             return default
 
     return default
@@ -35,6 +37,7 @@ def load_json(path, default):
 def save_json(path, data):
 
     with open(path, "w", encoding="utf-8") as f:
+
         json.dump(
             data,
             f,
@@ -45,7 +48,6 @@ def save_json(path, data):
 
 
 async def main():
-
 
     print("Connecting to Telegram...")
 
@@ -90,6 +92,12 @@ async def main():
     )
 
 
+    # اصلاح ساختار اشتباه فایل قبلی
+    if not isinstance(posts, list):
+
+        posts = []
+
+
     new_posts = []
 
 
@@ -110,21 +118,14 @@ async def main():
             continue
 
 
-        post = {
-
-            "message_id": message.id,
-
-            "date": str(message.date),
-
-            "text": message.text,
-
-            "media": bool(message.media)
-
-        }
-
-
-        new_posts.append(post)
-
+        new_posts.append(
+            {
+                "message_id": message.id,
+                "date": str(message.date),
+                "text": message.text,
+                "media": bool(message.media)
+            }
+        )
 
 
     if new_posts:
@@ -142,22 +143,22 @@ async def main():
         )
 
 
-        last_message = max(
-            p["message_id"]
-            for p in new_posts
+        last_message_id = max(
+            item["message_id"]
+            for item in new_posts
         )
 
 
         save_json(
             STATE_FILE,
             {
-                "last_message_id": last_message
+                "last_message_id": last_message_id
             }
         )
 
 
         print(
-            "New posts:",
+            "New posts saved:",
             len(new_posts)
         )
 
@@ -167,7 +168,6 @@ async def main():
         print(
             "No new posts"
         )
-
 
 
     await client.disconnect()
