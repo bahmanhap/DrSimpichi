@@ -1,56 +1,179 @@
-import asyncio, json, os
-from datetime import datetime, timezone
-from pathlib import Path
+import os
+import json
+import asyncio
+from datetime import datetime
+
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "github" / "data"
-STATE_FILE = DATA / "sync_state.json"
-RAW_FILE = DATA / "raw_posts.json"
 
 API_ID = int(os.environ["TELEGRAM_API_ID"])
 API_HASH = os.environ["TELEGRAM_API_HASH"]
+CHANNEL_USERNAME = os.environ["CHANNEL_USERNAME"]
 SESSION = os.environ["TELEGRAM_SESSION"]
-CHANNEL = os.getenv("CHANNEL_USERNAME", "moshakhsatmotor")
+
+
+RAW_FILE = "data/raw_posts.json"
+STATE_FILE = "data/sync_state.json"
+
 
 
 def load_json(path, default):
-    if not path.exists(): return default
-    try: return json.loads(path.read_text(encoding="utf-8"))
-    except Exception: return default
+
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+        except Exception:
+            return default
+
+    return default
+
+
+
+def save_json(path, data):
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            data,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
+
 
 
 async def main():
-    state = load_json(STATE_FILE, {"last_message_id": 0})
-    last_id = int(state.get("last_message_id", 0))
-    raw = load_json(RAW_FILE, {"version": 1, "items": []})
-    existing = {int(x.get("telegram_id", 0)): x for x in raw.get("items", []) if x.get("telegram_id") is not None}
 
-    client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
-    await client.start()
-    async with client:
-        entity = await client.get_entity(CHANNEL)
-        fresh = []
-        async for m in client.iter_messages(entity, min_id=last_id, reverse=True):
-            if not m.message and not m.media:
-                continue
-            item = {
-                "telegram_id": int(m.id),
-                "date": m.date.astimezone(timezone.utc).isoformat() if m.date else None,
-                "text": m.message or "",
-                "media": type(m.media).__name__ if m.media else None,
-                "sync_date": datetime.now(timezone.utc).isoformat(),
+
+    print("Connecting to Telegram...")
+
+
+    client = TelegramClient(
+        StringSession(SESSION),
+        API_ID,
+        API_HASH
+    )
+
+
+    await client.connect()
+
+
+    if not await client.is_user_authorized():
+
+        raise Exception(
+            "Telegram session is not authorized"
+        )
+
+
+    print("Telegram connected successfully")
+
+
+    state = load_json(
+        STATE_FILE,
+        {
+            "last_message_id": 0
+        }
+    )
+
+
+    last_id = state.get(
+        "last_message_id",
+        0
+    )
+
+
+    posts = load_json(
+        RAW_FILE,
+        []
+    )
+
+
+    new_posts = []
+
+
+    print(
+        "Reading channel:",
+        CHANNEL_USERNAME
+    )
+
+
+    async for message in client.iter_messages(
+        CHANNEL_USERNAME,
+        min_id=last_id
+    ):
+
+
+        if not message.text:
+
+            continue
+
+
+        post = {
+
+            "message_id": message.id,
+
+            "date": str(message.date),
+
+            "text": message.text,
+
+            "media": bool(message.media)
+
+        }
+
+
+        new_posts.append(post)
+
+
+
+    if new_posts:
+
+
+        new_posts.reverse()
+
+
+        posts.extend(new_posts)
+
+
+        save_json(
+            RAW_FILE,
+            posts
+        )
+
+
+        last_message = max(
+            p["message_id"]
+            for p in new_posts
+        )
+
+
+        save_json(
+            STATE_FILE,
+            {
+                "last_message_id": last_message
             }
-            existing[item["telegram_id"]] = item
-            fresh.append(item)
+        )
 
-    max_id = max([last_id] + [int(x["telegram_id"]) for x in fresh])
-    items = sorted(existing.values(), key=lambda x: int(x.get("telegram_id", 0)))
-    RAW_FILE.write_text(json.dumps({"version": 1, "items": items}, ensure_ascii=False, indent=2), encoding="utf-8")
-    STATE_FILE.write_text(json.dumps({"last_message_id": max_id}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Telegram sync complete: {len(fresh)} new posts; last_message_id={max_id}")
+
+        print(
+            "New posts:",
+            len(new_posts)
+        )
+
+
+    else:
+
+        print(
+            "No new posts"
+        )
+
+
+
+    await client.disconnect()
+
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
